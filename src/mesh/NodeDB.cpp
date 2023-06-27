@@ -209,7 +209,15 @@ void NodeDB::initConfigIntervals()
     config.power.min_wake_secs = default_min_wake_secs;
     config.power.sds_secs = default_sds_secs;
     config.power.wait_bluetooth_secs = default_wait_bluetooth_secs;
+#if defined(RAK4630) || defined(RAK11310)
+    // Default to RAK led pin 2 (blue)
+    moduleConfig.external_notification.enabled = true;
+    moduleConfig.external_notification.output = PIN_LED2;
+    moduleConfig.external_notification.active = true;
+    moduleConfig.external_notification.alert_message = true;
+    moduleConfig.external_notification.output_ms = 1000;
 
+#endif
     config.display.screen_on_secs = default_screen_on_secs;
 }
 
@@ -225,6 +233,16 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.has_store_forward = true;
     moduleConfig.has_telemetry = true;
     moduleConfig.has_external_notification = true;
+
+#if defined(RAK4630) || defined(RAK11310)
+    // Default to RAK led pin 2 (blue)
+    moduleConfig.external_notification.enabled = true;
+    moduleConfig.external_notification.output = PIN_LED2;
+    moduleConfig.external_notification.active = true;
+    moduleConfig.external_notification.alert_message = true;
+    moduleConfig.external_notification.output_ms = 1000;
+
+#endif
     moduleConfig.has_canned_message = true;
 
     strncpy(moduleConfig.mqtt.address, default_mqtt_address, sizeof(moduleConfig.mqtt.address));
