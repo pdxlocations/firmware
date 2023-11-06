@@ -31,6 +31,11 @@
 uint8_t red = 0;
 uint8_t green = 0;
 uint8_t blue = 0;
+uint8_t val = 0;
+uint8_t cstate = 1; // start off on blue
+uint8_t brightnessValues[] = {0, 10, 26, 42, 59, 77, 94, 112, 130, 147, 164, 181, 197, 211, 224, 235};
+bool ascending = true;
+
 #endif
 
 #ifndef PIN_BUZZER
@@ -100,11 +105,33 @@ int32_t ExternalNotificationModule::runOnce()
             }
 #ifdef HAS_NCP5623
             if (rgb_found.type == ScanI2C::NCP5623) {
-                green = (green + 50) % 255;
-                red = abs(red - green) % 255;
-                blue = abs(blue / red) % 255;
 
+                red = (cstate & 4) ? brightnessValues[val] : 0; // Red channel enabled on cstate = 4,5,6,7  // val<<3 adjusts from
+                                                                // 5 bit quantity to 8 bit for the library
+                green = (cstate & 2) ? brightnessValues[val] : 0; // Green channel enabled on cstate = 2,3,6,7
+                blue = (cstate & 1) ? brightnessValues[val] : 0;  // Blue channel enabled on cstate = 1,3,5,7
                 rgb.setColor(red, green, blue);
+
+                if (ascending) {
+                    val++;
+                    if (val > sizeof(brightnessValues)) { // if val has reached max,
+                        ascending = false;
+                    }
+                } else {
+                    val--;
+                }
+                if (val == 0) {
+                    ascending = true;
+                    cstate++;         // next state
+                    if (cstate > 7) { // if state has reached max
+                        cstate = 0;   // reset state
+                    }
+                }
+                // green = (green + 50) % 255;
+                // red = abs(red - green) % 255;
+                // blue = abs(blue / red) % 255;
+
+                // rgb.setColor(red, green, blue);
             }
 #endif
 
