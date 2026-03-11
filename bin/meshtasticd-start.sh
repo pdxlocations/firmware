@@ -1,12 +1,12 @@
 #!/usr/bin/env sh
 
 INSTANCE=$1
-CONF_DIR="/etc/meshtasticd/config.d"
+CONF_DIR="/etc/meshtasticd"
 VFS_DIR="/var/lib"
 
 # If no instance ID provided, start bare daemon and exit
-echo "no instance ID provided, starting bare meshtasticd service"
 if [ -z "${INSTANCE}" ]; then
+  echo "no instance ID provided, starting bare meshtasticd service"
   /usr/bin/meshtasticd
   exit 0
 fi
