@@ -914,10 +914,18 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
         return;
     }
 
-    if (shouldFilterReceived(p)) {
+    // Let delayed self-echo packets (e.g., long-path returns) bypass normal duplicate filtering.
+    const bool isSelfOriginatedRfPacket = (p->from == nodeDB->getNodeNum());
+
+    if (!isSelfOriginatedRfPacket && shouldFilterReceived(p)) {
         LOG_DEBUG("Incoming msg was filtered from 0x%x", p->from);
         packetPool.release(p);
         return;
+    }
+
+    // Keep a trace point so accepted self-echo behavior is visible in logs.
+    if (isSelfOriginatedRfPacket) {
+        LOG_DEBUG("Allow self-originated RF packet id=0x%08x", p->id);
     }
 
     // Note: we avoid calling shouldFilterReceived if we are supposed to ignore certain nodes - because some overrides might
