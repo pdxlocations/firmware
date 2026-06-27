@@ -1533,7 +1533,9 @@ void NodeDB::installDefaultDeviceState()
  */
 void NodeDB::pickNewNodeNum()
 {
-    NodeNum nodeNum = myNodeInfo.my_node_num;
+    NodeNum savedNodeNum = myNodeInfo.my_node_num;
+    NodeNum nodeNum = savedNodeNum;
+    bool hadSavedNodeNum = savedNodeNum != 0;
     getMacAddr(ourMacAddr); // Make sure ourMacAddr is set
     if (nodeNum == 0) {
         // Pick an initial nodenum based on the macaddr
@@ -1547,6 +1549,8 @@ void NodeDB::pickNewNodeNum()
             return false;
         if (owner.public_key.size == 32 && n->public_key.size == 32)
             return memcmp(n->public_key.bytes, owner.public_key.bytes, 32) == 0;
+        if (hadSavedNodeNum && owner.is_licensed && nodeInfoLiteIsLicensed(n) && n->num == savedNodeNum)
+            return true;
         return !nodeInfoLiteHasUser(n);
     };
 
