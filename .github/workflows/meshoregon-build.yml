@@ -9,6 +9,9 @@ on:
       commit:
         type: string
         required: true
+      profile_commit:
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -25,9 +28,28 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          repository: meshtastic/firmware
           ref: ${{ inputs.commit }}
           submodules: recursive
           persist-credentials: false
+      - name: Fetch MeshOregon profile
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.profile_commit }}
+          path: .meshoregon-profile
+          sparse-checkout: |
+            /userPrefs.jsonc
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Fetch release packaging tools
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .meshoregon-tools
+          sparse-checkout: bin/meshoregon
+          persist-credentials: false
+      - name: Apply MeshOregon preferences and splash screen
+        run: cp .meshoregon-profile/userPrefs.jsonc userPrefs.jsonc
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -35,7 +57,10 @@ jobs:
       - name: Build firmware and filesystem
         env:
           TARGET: ${{ matrix.board }}
-        run: pio run --environment "$TARGET" --target mtjson
+        run: |
+          printf '%s\n' 'pioarduino==6.2.0' > "$RUNNER_TEMP/pio-constraints.txt"
+          export UV_CONSTRAINT="$RUNNER_TEMP/pio-constraints.txt"
+          pio run --environment "$TARGET" --target mtjson
       - name: Include the companion OTA image
         if: startsWith(matrix.platform, 'esp32') && matrix.platform != 'esp32s2'
         env:
@@ -55,7 +80,7 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
           COMMIT: ${{ inputs.commit }}
         run: >-
-          python bin/meshoregon/package.py board
+          python .meshoregon-tools/bin/meshoregon/package.py board
           --board "$TARGET" --platform "$PLATFORM" --commit "$COMMIT"
           --build-dir ".pio/build/$TARGET" --output "publish/$TARGET"
       - uses: actions/upload-artifact@v7

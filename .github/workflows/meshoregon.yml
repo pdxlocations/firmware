@@ -1,7 +1,21 @@
 name: Build MeshOregon
 
 on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/meshoregon.yml
+      - .github/workflows/meshoregon-build.yml
+      - bin/meshoregon/**
   workflow_dispatch:
+    inputs:
+      version:
+        description: Meshtastic release tag or version; leave blank for newest published release
+        type: string
+        default: "2.8.2"
+        required: false
+  schedule:
+    - cron: "17 * * * *"
 
 permissions:
   contents: read
@@ -11,28 +25,76 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    outputs:
+      build: ${{ steps.release.outputs.build }}
+      commit: ${{ steps.release.outputs.commit }}
+      profile_commit: ${{ steps.release.outputs.profile_commit }}
+      upstream_tag: ${{ steps.release.outputs.upstream_tag }}
+      upstream_release_id: ${{ steps.release.outputs.upstream_release_id }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Test release selection
+        run: node --test bin/meshoregon/test_release.cjs
+      - name: Resolve upstream release and skip existing builds
+        id: release
+        uses: actions/github-script@v8
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'push' && '2.8.2' || inputs.version }}
+        with:
+          script: |
+            const { resolve } = require('./bin/meshoregon/release.cjs');
+            await resolve({ github, context, core, version: process.env.RELEASE_VERSION || '' });
+
   prepare:
+    needs: resolve
+    if: needs.resolve.outputs.build == 'true'
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.prepare.outputs.matrix }}
-      commit: ${{ steps.prepare.outputs.commit }}
       version: ${{ steps.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: MeshOregon
+          repository: meshtastic/firmware
+          ref: ${{ needs.resolve.outputs.commit }}
           submodules: recursive
           persist-credentials: false
+      - name: Fetch MeshOregon profile
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.profile_commit }}
+          path: .meshoregon-profile
+          sparse-checkout: |
+            /userPrefs.jsonc
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Fetch release packaging tools
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .meshoregon-tools
+          sparse-checkout: bin/meshoregon
+          persist-credentials: false
+      - name: Apply MeshOregon preferences and splash screen
+        run: cp .meshoregon-profile/userPrefs.jsonc userPrefs.jsonc
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade "platformio>=6.2.0,<7"
       - name: Test release packaging
-        run: python -m unittest discover -s bin/meshoregon -v
-      - name: Enumerate every hardware target, including extra boards
+        run: python -m unittest discover -s .meshoregon-tools/bin/meshoregon -v
+      - name: Enumerate upstream release hardware targets
         id: prepare
         run: |
-          python bin/generate_ci_matrix.py all --level extra > targets-all.json
+          python bin/generate_ci_matrix.py all > targets-all.json
           python - <<'PY'
           import json
           import os
@@ -47,10 +109,9 @@ jobs:
           Path("targets.json").write_text(json.dumps(targets))
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write("matrix=" + json.dumps({"include": shards}) + "\n")
-              output.write("commit=" + subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() + "\n")
               output.write("version=" + subprocess.check_output(["python", "bin/buildinfo.py", "long"], text=True).strip() + "\n")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-              summary.write(f"Building all {len(targets)} hardware targets from MeshOregon, including extra boards. Native/desktop environments are excluded.\n")
+              summary.write(f"Building all {len(targets)} upstream release hardware targets with MeshOregon preferences.\n")
           PY
       - uses: actions/upload-artifact@v7
         with:
@@ -58,24 +119,25 @@ jobs:
           path: targets.json
 
   build:
-    needs: prepare
+    needs: [resolve, prepare]
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     uses: ./.github/workflows/meshoregon-build.yml
     with:
       targets: ${{ matrix.targets }}
-      commit: ${{ needs.prepare.outputs.commit }}
+      commit: ${{ needs.resolve.outputs.commit }}
+      profile_commit: ${{ needs.resolve.outputs.profile_commit }}
 
   publish:
-    needs: [prepare, build]
+    needs: [resolve, prepare, build]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.prepare.outputs.commit }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
@@ -83,21 +145,45 @@ jobs:
           path: artifacts
       - name: Verify full coverage and generate catalog
         env:
-          COMMIT: ${{ needs.prepare.outputs.commit }}
+          COMMIT: ${{ needs.resolve.outputs.commit }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: >-
           python bin/meshoregon/package.py catalog
           --artifacts artifacts --output release-assets
           --expected artifacts/meshoregon-targets/targets.json
           --commit "$COMMIT" --version "$VERSION"
-      - name: Publish immutable MeshOregon release
+      - name: Record upstream release and profile provenance
+        env:
+          UPSTREAM_TAG: ${{ needs.resolve.outputs.upstream_tag }}
+          UPSTREAM_RELEASE_ID: ${{ needs.resolve.outputs.upstream_release_id }}
+          PROFILE_COMMIT: ${{ needs.resolve.outputs.profile_commit }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path("release-assets/meshoregon.json")
+          catalog = json.loads(path.read_text())
+          catalog["upstream"] = {"repository": "meshtastic/firmware", "tag": os.environ["UPSTREAM_TAG"], "releaseId": int(os.environ["UPSTREAM_RELEASE_ID"]), "commit": catalog["commit"]}
+          catalog["profileCommit"] = os.environ["PROFILE_COMMIT"]
+          path.write_text(json.dumps(catalog, indent=2) + "\n")
+          PY
+      - name: Publish MeshOregon release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          COMMIT: ${{ needs.prepare.outputs.commit }}
+          COMMIT: ${{ needs.resolve.outputs.commit }}
+          PROFILE_COMMIT: ${{ needs.resolve.outputs.profile_commit }}
           VERSION: ${{ needs.prepare.outputs.version }}
-          TAG: meshoregon-${{ github.run_id }}-${{ github.run_attempt }}
+          UPSTREAM_TAG: ${{ needs.resolve.outputs.upstream_tag }}
+          TAG: ${{ needs.resolve.outputs.release_tag }}
         run: |
-          gh release create "$TAG" release-assets/* --target "$COMMIT" --prerelease --latest=false \
-            --title "MeshOregon $VERSION" \
-            --notes "All hardware targets built from the MeshOregon branch at $COMMIT. Includes extra boards; excludes native/desktop environments."
+          if gh release view "$TAG" --json isDraft --jq '.isDraft' > "$RUNNER_TEMP/meshoregon-draft"; then
+            test "$(cat "$RUNNER_TEMP/meshoregon-draft")" = true
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            gh release create "$TAG" release-assets/* --target "$COMMIT" --draft --prerelease --latest=false \
+              --title "MeshOregon $VERSION" \
+              --notes "All release hardware targets built from meshtastic/firmware release $UPSTREAM_TAG ($COMMIT), with userPrefs and splash from MeshOregon profile $PROFILE_COMMIT."
+          fi
+          gh release edit "$TAG" --draft=false
