@@ -1,0 +1,98 @@
+name: Build MeshOregon targets
+
+on:
+  workflow_call:
+    inputs:
+      targets:
+        type: string
+        required: true
+      commit:
+        type: string
+        required: true
+      profile_commit:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        include: ${{ fromJSON(inputs.targets) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: meshtastic/firmware
+          ref: ${{ inputs.commit }}
+          submodules: recursive
+          persist-credentials: false
+      - name: Fetch MeshOregon profile
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.profile_commit }}
+          path: .meshoregon-profile
+          sparse-checkout: |
+            /userPrefs.jsonc
+            /bin/meshoregon/firmware.patch
+            /src/mesh/NodeDB.cpp
+            /src/mesh/PositionPrecision.h
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Fetch release packaging tools
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .meshoregon-tools
+          sparse-checkout: bin/meshoregon
+          persist-credentials: false
+      - name: Apply MeshOregon firmware patches, preferences, and splash screen
+        run: |
+          git -C .meshoregon-profile apply --reverse --check bin/meshoregon/firmware.patch
+          git apply --check .meshoregon-profile/bin/meshoregon/firmware.patch
+          git apply .meshoregon-profile/bin/meshoregon/firmware.patch
+          cp .meshoregon-profile/userPrefs.jsonc userPrefs.jsonc
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade "platformio>=6.2.0,<7"
+      - name: Build firmware and filesystem
+        env:
+          TARGET: ${{ matrix.board }}
+        run: |
+          printf '%s\n' 'pioarduino==6.2.0' > "$RUNNER_TEMP/pio-constraints.txt"
+          export UV_CONSTRAINT="$RUNNER_TEMP/pio-constraints.txt"
+          pio run --environment "$TARGET" --target mtjson
+      - name: Include the companion OTA image
+        if: startsWith(matrix.platform, 'esp32') && matrix.platform != 'esp32s2'
+        env:
+          TARGET: ${{ matrix.board }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          if [[ "$PLATFORM" == esp32 || "$PLATFORM" == esp32s3 ]]; then
+            curl --fail --location --retry 3 "https://github.com/meshtastic/esp32-unified-ota/releases/latest/download/mt-$PLATFORM-ota.bin" \
+              --output ".pio/build/$TARGET/mt-$PLATFORM-ota.bin"
+          else
+            curl --fail --location --retry 3 https://github.com/meshtastic/firmware-ota/releases/latest/download/firmware-c3.bin \
+              --output ".pio/build/$TARGET/bleota-c3.bin"
+          fi
+      - name: Package firmware for the flasher
+        env:
+          TARGET: ${{ matrix.board }}
+          PLATFORM: ${{ matrix.platform }}
+          COMMIT: ${{ inputs.commit }}
+        run: >-
+          python .meshoregon-tools/bin/meshoregon/package.py board
+          --board "$TARGET" --platform "$PLATFORM" --commit "$COMMIT"
+          --build-dir ".pio/build/$TARGET" --output "publish/$TARGET"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: meshoregon-${{ matrix.board }}
+          path: publish/${{ matrix.board }}/
+          if-no-files-found: error
+          retention-days: 14

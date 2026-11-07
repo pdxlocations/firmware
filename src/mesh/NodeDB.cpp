@@ -1230,6 +1230,10 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
 
 #if USERPREFS_EVENT_MODE
     config.lora.hop_limit = Default::eventModeHopLimit;
+#elif defined(USERPREFS_LORACONFIG_HOP_LIMIT)
+    static_assert(USERPREFS_LORACONFIG_HOP_LIMIT >= 0 && USERPREFS_LORACONFIG_HOP_LIMIT <= HOP_MAX,
+                  "USERPREFS_LORACONFIG_HOP_LIMIT must be between 0 and 7");
+    config.lora.hop_limit = USERPREFS_LORACONFIG_HOP_LIMIT;
 #else
     config.lora.hop_limit = HOP_RELIABLE;
 #endif

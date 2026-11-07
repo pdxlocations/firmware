@@ -3,3 +3,4 @@
 *.bat text eol=crlf
 *.ps1 text eol=crlf
 *.{sh,[sS][hH]} text eol=lf
+bin/meshoregon/firmware.patch -whitespace

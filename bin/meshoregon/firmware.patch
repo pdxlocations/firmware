@@ -1,0 +1,33 @@
+diff --git a/src/mesh/NodeDB.cpp b/src/mesh/NodeDB.cpp
+index 906bb96db..39a4658b7 100644
+--- a/src/mesh/NodeDB.cpp
++++ b/src/mesh/NodeDB.cpp
+@@ -1230,6 +1230,10 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
+ 
+ #if USERPREFS_EVENT_MODE
+     config.lora.hop_limit = Default::eventModeHopLimit;
++#elif defined(USERPREFS_LORACONFIG_HOP_LIMIT)
++    static_assert(USERPREFS_LORACONFIG_HOP_LIMIT >= 0 && USERPREFS_LORACONFIG_HOP_LIMIT <= HOP_MAX,
++                  "USERPREFS_LORACONFIG_HOP_LIMIT must be between 0 and 7");
++    config.lora.hop_limit = USERPREFS_LORACONFIG_HOP_LIMIT;
+ #else
+     config.lora.hop_limit = HOP_RELIABLE;
+ #endif
+diff --git a/src/mesh/PositionPrecision.h b/src/mesh/PositionPrecision.h
+index a3565aa56..b1f433cd8 100644
+--- a/src/mesh/PositionPrecision.h
++++ b/src/mesh/PositionPrecision.h
+@@ -4,11 +4,8 @@
+ #include "meshtastic/mesh.pb.h"
+ #include <stdint.h>
+ 
+-// Max precision on a publicly-decryptable channel. CCPA "precise geolocation" = within a ~564m (1,850ft) radius.
+-// Precision is bit-truncation of latitude_i/longitude_i: the latitude cell stays ~constant in meters worldwide
+-// (~700m at 15 bits), while only the longitude cell varies - widest at the equator, narrowing toward the poles.
+-// 15 also matches the MQTT map-report public precision ceiling.
+-#define MAX_POSITION_PRECISION_PUBLIC_KEY 15
++// MeshOregon permits configured full precision on publicly decryptable channels.
++#define MAX_POSITION_PRECISION_PUBLIC_KEY 32
+ 
+ // Configured precision as-is; does NOT apply the public-key clamp -- use the channelIndex overload for the on-wire value.
+ uint32_t getPositionPrecisionForChannel(const meshtastic_Channel &channel);
