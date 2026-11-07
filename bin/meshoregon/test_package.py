@@ -52,6 +52,19 @@ class PackageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Overlapping"):
             self.board()
 
+    def test_companion_ota_is_included_only_when_the_board_partition_fits(self):
+        companion = self.build / "mt-esp32-ota.bin"
+        companion.write_bytes(b"ota")
+        for size in (None, "0x2", "0x100000"):
+            with self.subTest(size=size):
+                parts = [{"name": "spiffs", "offset": "0x300000", "size": "0x100000"}]
+                if size:
+                    parts.append({"name": "app1", "offset": "0x200000", "size": size})
+                (self.build / "firmware-test.mt.json").write_text(json.dumps({"part": parts}))
+                record = self.board()
+                self.assertEqual(companion.name in [p["name"] for p in record["files"]], size == "0x100000")
+                self.assertEqual(companion.name in [p["name"] for p in record["flash"]], size == "0x100000")
+
 
 if __name__ == "__main__":
     unittest.main()
