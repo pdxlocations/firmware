@@ -1,12 +1,6 @@
 name: Build MeshOregon
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - .github/workflows/meshoregon.yml
-      - .github/workflows/meshoregon-build.yml
-      - bin/meshoregon/**
   workflow_dispatch:
     inputs:
       version:
@@ -47,7 +41,7 @@ jobs:
         id: release
         uses: actions/github-script@v8
         env:
-          RELEASE_VERSION: ${{ github.event_name == 'push' && '2.8.2' || inputs.version }}
+          RELEASE_VERSION: ${{ inputs.version }}
         with:
           script: |
             const { resolve } = require('./bin/meshoregon/release.cjs');
