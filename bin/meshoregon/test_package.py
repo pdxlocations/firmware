@@ -65,6 +65,14 @@ class PackageTests(unittest.TestCase):
                 self.assertEqual(companion.name in [p["name"] for p in record["files"]], size == "0x100000")
                 self.assertEqual(companion.name in [p["name"] for p in record["flash"]], size == "0x100000")
 
+    def test_mui_companion_uses_the_flashapp_partition(self):
+        (self.build / "mt-esp32s3-ota.bin").write_bytes(b"ota")
+        (self.build / "firmware-test.mt.json").write_text(json.dumps({"part": [
+            {"name": "flashApp", "subtype": "ota_1", "offset": "0x5D0000", "size": "0x0A0000"},
+            {"name": "spiffs", "offset": "0x670000", "size": "0x180000"},
+        ]}))
+        self.assertIn({"name": "mt-esp32s3-ota.bin", "address": 0x5D0000}, self.board()["flash"])
+
 
 if __name__ == "__main__":
     unittest.main()

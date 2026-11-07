@@ -27,7 +27,7 @@ def package_board(build_dir, output, board, platform, commit):
     manifest_path = next((p for p in files if p.name.endswith(".mt.json")), None)
     manifest = json.loads(manifest_path.read_text()) if manifest_path else {}
     partitions = {part["name"]: part for part in manifest.get("part", [])}
-    ota = partitions.get("app1")
+    ota = next((part for part in partitions.values() if part.get("subtype") == "ota_1"), partitions.get("app1"))
     for path in list(binaries):
         if path.name.startswith(("mt-", "bleota")) and (not ota or path.stat().st_size > int(str(ota["size"]), 0)):
             print(f"Omitting companion OTA image unsupported by {board}: {path.name}")
@@ -36,7 +36,7 @@ def package_board(build_dir, output, board, platform, commit):
     flash = [{"name": factory, "address": 0}] if factory else []
     if factory:
         for binary in binaries:
-            part = "spiffs" if binary.name.startswith("littlefs-") else "app1" if binary.name.startswith(("mt-", "bleota")) else None
+            part = "spiffs" if binary.name.startswith("littlefs-") else ota["name"] if binary.name.startswith(("mt-", "bleota")) else None
             if part:
                 partition = partitions.get(part)
                 if not partition or binary.stat().st_size > int(str(partition["size"]), 0):
